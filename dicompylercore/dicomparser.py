@@ -602,7 +602,7 @@ class DicomParser:
             col_lut = np.linspace(first_y, last_y, num_cols)
             row_lut = np.linspace(first_x, last_x, num_rows)
 
-        return (col_lut, row_lut), x_index
+        return col_lut, row_lut
 
 # ========================= RT Structure Set Methods =========================
 
@@ -980,7 +980,8 @@ class DicomParser:
             if self.memmap_pixel_array:
                 del pixel_array
         data['dosemax'] = float(dosemax)
-        data['lut'], data['x_lut_index'] = self.GetPatientToPixelLUT()
+        data['lut'] = self.GetPatientToPixelLUT()
+        data['x_lut_index'] = x_lut_index(self.ds.ImageOrientationPatient)
         data['fraction'] = ''
         if "ReferencedRTPlanSequence" in self.ds:
             plan = self.ds.ReferencedRTPlanSequence[0]
