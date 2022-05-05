@@ -232,7 +232,10 @@ def _calculate_dvh(structure,
                 logger.warning('Dose plane not found for %s.' +
                                ' Using %s to calculate contour volume.',
                                z, origin_z)
-                # Use dummy dose grid
+                # Create a dummy dose grid with the correct size.
+                # calculate_plane_histogram() and its methods provide the
+                # volume calc needed, but do so as part of DVH calc,
+                # which requires a dose grid
                 dummy_dose = dose.GetDoseGrid(origin_z)
                 if use_structure_extents:
                     extents = dgindexextents
