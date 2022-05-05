@@ -393,7 +393,7 @@ def dosegrid_extents_indices(extents, dd, padding=1):
     if dg_row_min > dg_row_max:
         dg_row_min, dg_row_max = dg_row_max, dg_row_min
 
-    # Ensure indexes within array limits regardless of padding
+    # Ensure indices within array limits regardless of padding
     dg_col_min = max(0, dg_col_min-padding)
     dg_row_min = max(0, dg_row_min-padding)
     dg_col_max = min(num_cols - 1, dg_col_max+padding)
