@@ -416,6 +416,53 @@ class TestDVHCalcDecubitus(unittest.TestCase):
         got_counts = diffl.counts * 18 / 0.36
         assert_allclose(got_counts, expected_counts)
 
+    def test_HF_decubitus_right_interpolation(self):
+        """Test DVH for HF decubitus right with interpolation."""
+        # Start with same grid as HF decub right without interpolation,
+        # show below what interp looks like
+        self.dose.ImageOrientationPatient = [0, 1, 0, -1, 0, 0]
+        self.dose.ImagePositionPatient = [14, 12, -20]  # X Y Z top left
+
+        self.dose.PixelSpacing = [2.0, 1.0]  # between Rows, Columns
+        new_spacing = (1.0, 1.0)  # interpolate mid-way between rows
+
+        # Change contour so half-way between interpolated grid rows:
+        # Contours box for this test becomes (3.5, 14.5) - (7.5, 17.5)
+        for contour in self.ss.ROIContourSequence[0].ContourSequence:
+            # every third item is X coord, bump up by 0.5 mm
+            for i in range(0, len(contour.ContourData), 3):
+                contour.ContourData[i] += 0.5
+
+        #       Y=12   13    14    15    16    17    18    19
+        # X=14,13,12,11,10,9
+        #    8  [13  , 13  , 13  , 16  , 17  , 18  , 19  , 20]
+        #                        | -----------------|
+        # >>>7  [13.5, 13.5, 13.5, 16.5, 17.5, 18.5, 19.5, 20.5]
+        #    6  [14  , 14  , 14  , 17  , 18  , 19  , 20  , 21]
+        # >>>5  [14.5, 14.5, 14.5, 17.5, 18.5, 19.5, 20.5, 21.5]
+        #    4  [15  , 15  , 15  , 18  , 19  , 20  , 21  , 22]
+        #                        | -----------------|
+        # >>>3  [15.5, 15.5, 15.5, 18.5, 19.5, 20.5, 21.5, 22.5]
+        #    2  [16  , 16  , 16  , 19  , 20  , 21  , 22  , 23]]
+
+        # Other two planes similar except in 20's and 30's
+
+        #                           16         20
+        expected_counts = [0]*16 + [1, 3, 4, 3, 1, 0, 0, 0, 0, 0,
+                                    1, 3, 4, 3, 1, 0, 0, 0, 0, 0,
+                                    1, 3, 4, 3, 1]
+        #                          36           40
+        dvh = get_dvh(
+            self.ss, self.dose, 1, interpolation_resolution=new_spacing
+        )
+        diffl = dvh.differential
+        # Counts are normalized to total, and to volume,
+        # So undo that here for test dose grid.
+        # 36=num dose voxels inside struct; 0.360=volume
+        got_counts = diffl.counts * 36 / 0.360
+        assert_allclose(got_counts, expected_counts)
+
+
     def test_FF_decubitus_right(self):
         """Test DVH for feet-first decubitus right orientation."""
         self.dose.ImageOrientationPatient = [0, -1, 0, -1, 0, 0]

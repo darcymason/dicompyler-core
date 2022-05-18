@@ -24,7 +24,7 @@ import logging
 logger = logging.getLogger('dicompylercore.dvhcalc')
 
 if skimage_available:
-    from skimage.transform import rescale
+    from skimage.transform import resize_local_mean
 
 
 def get_dvh(structure,
@@ -163,8 +163,8 @@ def _calculate_dvh(structure,
             # Determine LUT from extents
             if use_structure_extents:
                 dd['lut'] = \
-                    (dd['lut'][0][dgindexextents[0]:dgindexextents[2]],
-                     dd['lut'][1][dgindexextents[1]:dgindexextents[3]])
+                    (dd['lut'][0][dgindexextents[0]:dgindexextents[2]+1],
+                     dd['lut'][1][dgindexextents[1]:dgindexextents[3]+1])
             # If interpolation is enabled, generate new LUT from extents
             if interpolation_resolution:
                 dd['lut'] = get_resampled_lut(
@@ -174,7 +174,7 @@ def _calculate_dvh(structure,
                     min_pixel_spacing=id['pixelspacing'])
             dd['rows'] = dd['lut'][1].shape[0]
             dd['columns'] = dd['lut'][0].shape[0]
-
+            new_shape = (dd['rows'], dd['columns'])
         # Generate a 2d mesh grid to create a polygon mask in dose coordinates
         # Code taken from Stack Overflow Answer from Joe Kington:
         # https://stackoverflow.com/q/3654289/74123
@@ -211,7 +211,7 @@ def _calculate_dvh(structure,
         # Get the dose plane for the current structure plane
         if interpolation_resolution or use_structure_extents:
             doseplane = get_interpolated_dose(
-                dose, z, interpolation_resolution, dgindexextents)
+                dose, z, interpolation_resolution, new_shape, dgindexextents)
         else:
             doseplane = dose.GetDoseGrid(z)
         if doseplane.size:
@@ -240,7 +240,7 @@ def _calculate_dvh(structure,
                 if use_structure_extents:
                     extents = dgindexextents
                     dummy_dose = dummy_dose[
-                        extents[1]:extents[3], extents[0]:extents[2]
+                        extents[1]:extents[3]+1, extents[0]:extents[2]+1
                     ]
                 _, vol = calculate_plane_histogram(
                     plane, dummy_dose, dosegridpoints, maxdose,
@@ -358,7 +358,7 @@ def dosegrid_extents_indices(extents, dd, padding=1):
     Parameters
     ----------
     extents : list
-        Structure extents in patient coordinates: [xmin, ymin, xmax, ymax].
+        Structure extents in patient coordintes: [xmin, ymin, xmax, ymax].
         If an empty list, no structure extents will be used in the calculation.
     dd : dict
         Dose data from dicomparser.GetDoseData.
@@ -368,7 +368,7 @@ def dosegrid_extents_indices(extents, dd, padding=1):
     Returns
     -------
     list
-        Dose grid extents in pixel coordinates as array indices:
+        Dose grid extents in pixel coordintes as array indices:
         [col_min, row_min, col_max, row_max].
     """
     col_lut, row_lut = dd['lut']
@@ -471,7 +471,7 @@ def get_resampled_lut(index_extents,
     Examples
     --------
     Original pixel spacing: ``3`` mm, new pixel spacing: ``0.375`` mm
-    Derived via: ``(3 / 2^16) == 0.375``
+    Derived via: ``(3 / 2^3) == 0.375``
 
     """
     if not isinstance(new_pixel_spacing, Sequence):
@@ -493,12 +493,16 @@ def get_resampled_lut(index_extents,
             " where n is an integer. Value provided was %s."
             % new_pixel_spacing[1])
 
-    # Existing number of cols, rows
-    num_cols = abs(index_extents[0] - index_extents[2])
-    num_rows = abs(index_extents[1] - index_extents[3])
+    # Existing number of col, row spacings
+    num_col_spacings = abs(index_extents[0] - index_extents[2])
+    num_row_spacings = abs(index_extents[1] - index_extents[3])
 
-    col_samples = num_cols * min_pixel_spacing[1] / new_pixel_spacing[1]
-    row_samples = num_rows * min_pixel_spacing[0] / new_pixel_spacing[0]
+    col_samples = 1 + num_col_spacings * (
+        min_pixel_spacing[1] / new_pixel_spacing[1]
+    )
+    row_samples = 1 + num_row_spacings * (
+        min_pixel_spacing[0] / new_pixel_spacing[0]
+    )
 
     col_lut = np.linspace(
         extents[0], extents[2], int(col_samples), dtype=np.float
@@ -509,7 +513,7 @@ def get_resampled_lut(index_extents,
     return col_lut, row_lut
 
 
-def get_interpolated_dose(dose, z, resolution, extents):
+def get_interpolated_dose(dose, z, resolution, new_shape, extents):
     """Get interpolated dose for the given z, resolution & array extents.
 
     Parameters
@@ -521,6 +525,8 @@ def get_interpolated_dose(dose, z, resolution, extents):
     resolution : tuple
         Interpolation resolution less than or equal to dose grid pixel spacing.
         Provided in (row, col) format.
+    new_shape : tuple
+        (num rows, num cols) of new grid.
     extents : list
         Dose grid index extents.
 
@@ -533,21 +539,19 @@ def get_interpolated_dose(dose, z, resolution, extents):
     d = dose.GetDoseGrid(z)
     if not d.size:
         return d  # cannot take 2d index below if empty
-    extent_dose = d[extents[1]:extents[3],
-                    extents[0]:extents[2]] if len(extents) else d
+    extent_dose = d[extents[1]:extents[3]+1,  # +1 for inclusive range
+                    extents[0]:extents[2]+1] if len(extents) else d
     if not resolution:
         return extent_dose
     if not skimage_available:
         raise ImportError(
             "scikit-image must be installed to perform DVH interpolation.")
-    scale = (np.array(dose.ds.PixelSpacing) / resolution).tolist()
-    interp_dose = rescale(
+
+    interp_dose = resize_local_mean(
         extent_dose,
-        scale=scale,
-        order=1,
-        mode='symmetric',
+        new_shape,
+        grid_mode=False,  # pixels represent center of cell
         preserve_range=True,
-        multichannel=False
         )
     return interp_dose
 
